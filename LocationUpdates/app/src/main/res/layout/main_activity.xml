@@ -109,5 +109,27 @@
             android:layout_height="wrap_content"
             android:text="@string/location_settings_inadequate_warning"
             android:visibility="invisible" />
+
+        <Button
+            android:id="@+id/btn_open_new"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Open new Activity"/>
+
+        <RadioGroup
+            android:id="@+id/rgroup"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+            <RadioButton
+                android:id="@+id/rb_callbabck"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Location Callback"/>
+            <RadioButton
+                android:id="@+id/rb_intent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pending Intent"/>
+        </RadioGroup>
     </LinearLayout>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

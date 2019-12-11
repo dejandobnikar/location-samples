@@ -18,7 +18,11 @@ package com.google.android.gms.location.sample.locationupdates;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.IntentSender;
 import android.content.pm.PackageManager;
 import android.location.Location;
@@ -26,14 +30,11 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Looper;
 import android.provider.Settings;
-import androidx.annotation.NonNull;
-import com.google.android.material.snackbar.Snackbar;
-import androidx.core.app.ActivityCompat;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -52,11 +53,18 @@ import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
+import com.google.android.material.snackbar.Snackbar;
 
 import java.text.DateFormat;
 import java.util.Date;
 import java.util.Locale;
 
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
+import androidx.core.app.ActivityCompat;
+
+import static com.google.android.gms.location.sample.locationupdates.App.MODE_CALLBACK;
 
 /**
  * Using location settings.
@@ -76,6 +84,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = MainActivity.class.getSimpleName();
 
+    private static final String ACTION_LOCATION = "com.google.android.gms.location.sample.locationupdates.LOCATION";
     /**
      * Code used in requesting runtime permissions.
      */
@@ -128,6 +137,7 @@ public class MainActivity extends AppCompatActivity {
      * Callback for Location events.
      */
     private LocationCallback mLocationCallback;
+    private BroadcastReceiver locationReceiver;
 
     /**
      * Represents a geographical location.
@@ -140,6 +150,9 @@ public class MainActivity extends AppCompatActivity {
     private TextView mLastUpdateTimeTextView;
     private TextView mLatitudeTextView;
     private TextView mLongitudeTextView;
+    private RadioGroup radioGroup;
+    private RadioButton rbCallback;
+    private RadioButton rbIntent;
 
     // Labels.
     private String mLatitudeLabel;
@@ -156,6 +169,8 @@ public class MainActivity extends AppCompatActivity {
      * Time when the location was updated represented as a String.
      */
     private String mLastUpdateTime;
+
+    private PendingIntent locationPendingIntent;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -188,9 +203,57 @@ public class MainActivity extends AppCompatActivity {
         // Kick off the process of building the LocationCallback, LocationRequest, and
         // LocationSettingsRequest objects.
         createLocationCallback();
+        createLocationReceiver();
         createLocationRequest();
         buildLocationSettingsRequest();
+
+        locationPendingIntent = PendingIntent.getBroadcast(getBaseContext(),
+                666, new Intent(ACTION_LOCATION), PendingIntent.FLAG_CANCEL_CURRENT);
+
+        findViewById(R.id.btn_open_new).setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                startActivity(new Intent(MainActivity.this, MainActivity.class));
+                finish();
+            }
+        });
+
+        radioGroup = findViewById(R.id.rgroup);
+        rbCallback = findViewById(R.id.rb_callbabck);
+        rbIntent = findViewById(R.id.rb_intent);
+
+
+        if (getMode() == MODE_CALLBACK) {
+            rbCallback.setChecked(true);
+        } else {
+            rbIntent.setChecked(true);
+        }
+
+        radioGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
+            @Override public void onCheckedChanged(RadioGroup group, int checkedId) {
+                switch (checkedId) {
+                    case R.id.rb_callbabck: {
+                        Log.d(TAG, "callback selected");
+                        setMode(MODE_CALLBACK);
+                        break;
+                    }
+                    case R.id.rb_intent: {
+                        Log.d(TAG, "intent selected");
+                        setMode(App.MODE_PENDING_INTENT);
+                        break;
+                    }
+                }
+            }
+        });
     }
+
+    private int getMode() {
+        return App.get(this).mode;
+    }
+
+    private void setMode(int mode) {
+        App.get(this).mode = mode;
+    }
+
 
     /**
      * Updates fields based on data stored in the bundle.
@@ -266,6 +329,21 @@ public class MainActivity extends AppCompatActivity {
             }
         };
     }
+    private void createLocationReceiver() {
+        locationReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (LocationResult.hasResult(intent)) {
+                    LocationResult result = LocationResult.extractResult(intent);
+                    Location lastLocation = result.getLastLocation();
+                    if (lastLocation != null) {
+                        mCurrentLocation = lastLocation;
+                        mLastUpdateTime = DateFormat.getTimeInstance().format(new Date());
+                        updateLocationUI();
+                    }
+                }
+            }
+        };
+    }
 
     /**
      * Uses a {@link com.google.android.gms.location.LocationSettingsRequest.Builder} to build
@@ -332,9 +410,15 @@ public class MainActivity extends AppCompatActivity {
                     public void onSuccess(LocationSettingsResponse locationSettingsResponse) {
                         Log.i(TAG, "All location settings are satisfied.");
 
-                        //noinspection MissingPermission
-                        mFusedLocationClient.requestLocationUpdates(mLocationRequest,
-                                mLocationCallback, Looper.myLooper());
+                        if (getMode() == MODE_CALLBACK) {
+                            //noinspection MissingPermission
+                            mFusedLocationClient.requestLocationUpdates(mLocationRequest,
+                                    mLocationCallback, Looper.myLooper());
+                        } else {
+                            IntentFilter intentFilter = new IntentFilter(ACTION_LOCATION);
+                            registerReceiver(locationReceiver, intentFilter);
+                            mFusedLocationClient.requestLocationUpdates(mLocationRequest, locationPendingIntent);
+                        }
 
                         updateUI();
                     }
@@ -387,9 +471,15 @@ public class MainActivity extends AppCompatActivity {
         if (mRequestingLocationUpdates) {
             mStartUpdatesButton.setEnabled(false);
             mStopUpdatesButton.setEnabled(true);
+            radioGroup.setEnabled(false);
+            rbCallback.setEnabled(false);
+            rbIntent.setEnabled(false);
         } else {
             mStartUpdatesButton.setEnabled(true);
             mStopUpdatesButton.setEnabled(false);
+            radioGroup.setEnabled(true);
+            rbCallback.setEnabled(true);
+            rbIntent.setEnabled(true);
         }
     }
 
@@ -419,14 +509,26 @@ public class MainActivity extends AppCompatActivity {
         // It is a good practice to remove location requests when the activity is in a paused or
         // stopped state. Doing so helps battery performance and is especially
         // recommended in applications that request frequent location updates.
-        mFusedLocationClient.removeLocationUpdates(mLocationCallback)
-                .addOnCompleteListener(this, new OnCompleteListener<Void>() {
-                    @Override
-                    public void onComplete(@NonNull Task<Void> task) {
-                        mRequestingLocationUpdates = false;
-                        setButtonsEnabledState();
-                    }
-                });
+        if (getMode() == MODE_CALLBACK) {
+            mFusedLocationClient.removeLocationUpdates(mLocationCallback)
+                    .addOnCompleteListener(this, new OnCompleteListener<Void>() {
+                        @Override
+                        public void onComplete(@NonNull Task<Void> task) {
+                            mRequestingLocationUpdates = false;
+                            setButtonsEnabledState();
+                        }
+                    });
+        } else {
+            unregisterReceiver(locationReceiver);
+            mFusedLocationClient.removeLocationUpdates(locationPendingIntent)
+                    .addOnCompleteListener(this, new OnCompleteListener<Void>() {
+                        @Override
+                        public void onComplete(@NonNull Task<Void> task) {
+                            mRequestingLocationUpdates = false;
+                            setButtonsEnabledState();
+                        }
+                    });
+        }
     }
 
     @Override
